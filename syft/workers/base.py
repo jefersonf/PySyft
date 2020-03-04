@@ -31,6 +31,7 @@ from syft.messaging.message import PlanCommandMessage
 from syft.messaging.message import SearchMessage
 from syft.execution.plan import Plan
 from syft.workers.abstract import AbstractWorker
+from syft.workers.abstract import AbstractWorkerGroup
 
 from syft.exceptions import GetNotPermittedError
 from syft.exceptions import WorkerNotFoundException
@@ -1111,3 +1112,185 @@ class BaseWorker(AbstractWorker, ObjectStorage):
                 del worker._objects[obj.id]
 
         return result
+
+
+class BaseWorkerGroup(AbstractWorkerGroup, ObjectStorage):
+    """TODO docstring
+    """
+
+    def __init__(
+        self,
+        workers: List["BaseWorker"],
+        id: Union[int, str] = 0,
+        is_client_worker_group: bool = False,
+        log_msgs: bool = False,
+        verbose: bool = False,
+    ):
+        """Initializes a BaseWorkerGroup"""
+        super().__init__()
+
+        self._workers = workers
+
+        self.id = id
+        self.is_client_worker_group = is_client_worker_group
+        self.log_msgs = log_msgs
+        self.verbose = verbose
+        self.msg_history = list()
+
+        # TODO cache all message types
+        self._message_router = {
+            OperationMessage: self.execute_command,
+            PlanCommandMessage: self.execute_plan_command,
+            ObjectMessage: self.set_obj,
+            ObjectRequestMessage: self.respond_to_obj_req,
+            ForceObjectDeleteMessage: self.rm_obj,  # FIXME: there is no ObjectDeleteMessage
+            IsNoneMessage: self.is_tensor_none,
+            GetShapeMessage: self.get_tensor_shape,
+            SearchMessage: self.search,
+            ForceObjectDeleteMessage: self.force_rm_obj,
+        }
+
+        # TODO define plan command router
+
+        self._participants = {}
+        for worker in self._workers:
+            self.add_worker(worker)
+
+        if len(self._workers) == 0:
+            self.framework = None
+        else:
+            # TODO[jvmancuso]: avoid branching here if possible, maybe by changing code in
+            #     execute_command or command_guard to not expect an attribute named "torch"
+            #     (#2530)
+            hook_ref = self._workers[0].hook
+            self.framework = hook_ref.framework
+            if hasattr(hook_ref, "torch"):
+                self.torch = self.framework
+                self.remote = Remote(self, "torch")
+            elif hasattr(hook_ref, "tensorflow"):
+                self.tensorflow = self.framework
+                self.remote = Remote(self, "tensorflow")
+
+    @abstractmethod
+    def _send_msg(self, message: bin, location: "BaseWorkerGroup"):
+        """Sends message from one worker group to another.
+
+        Args:
+            message: A binary message to be sent from one worker
+                to another.
+            location: A BaseWorker instance that lets you provide the
+                destination to send the message.
+
+        Raises:
+            NotImplementedError: Method not implemented error.
+        """
+
+        raise NotImplementedError  # pragma: no cover
+
+    @abstractmethod
+    def _recv_msg(self, message: bin):
+        """Receives the message.
+
+        Args:
+            message: The binary message being received.
+
+        Raises:
+            NotImplementedError: Method not implemented error.
+
+        """
+        raise NotImplementedError  # pragma: no cover
+
+    def send_msg(self, message: Message, location: "BaseWorkerGroup") -> object:
+        """Implements the logic to send messages.
+
+        The message is serialized and sent to the specified location. The
+        response from the location (remote worker group) is deserialized and
+        returned back.
+
+        Every message uses this method.
+
+        Args:
+            msg_type: A integer representing the message type.
+            message: A Message object
+            location: A BaseWorker instance that lets you provide the
+                destination to send the message.
+
+        Returns:
+            The deserialized form of message from the worker at specified
+            location.
+        """
+        if self.verbose:
+            print(f"worker {self} sending {message} to {location}")
+
+        # Step 1: serialize the message to a binary
+        bin_message = sy.serde.serialize(message, worker=self)
+
+        # Step 2: send the message and wait for a response
+        bin_response = self._send_msg(bin_message, location)
+
+        # Step 3: deserialize the response
+        response = sy.serde.deserialize(bin_response, worker=self)
+
+        return response
+
+    def recv_msg(self, bin_message: bin) -> bin:
+        """Implements the logic to receive messages.
+
+        The binary message is deserialized and routed to the appropriate
+        function. And, the response serialized the returned back.
+
+        Every message uses this method.
+
+        Args:
+            bin_message: A binary serialized message.
+
+        Returns:
+            A binary message response.
+        """
+
+        # Step -1: save message if log_msgs ==  True
+        if self.log_msgs:
+            self.msg_history.append(bin_message)
+
+        # Step 0: deserialize message
+        msg = sy.serde.deserialize(bin_message, worker=self)
+
+        if self.verbose:
+            print(f"worker {self} received {type(msg).__name__} {msg.contents}")
+
+        # Step 1: route message to appropriate function
+        response = self._message_router[type(msg)](msg.contents)
+
+        # Step 2: Serialize the message to simple python objects
+        bin_response = sy.serde.serialize(response, worker=self)
+
+        return bin_response
+
+    def add_worker(self, worker: "BaseWorker"):
+        """Adds a single worker.
+
+        Args:
+            worker (:class:`BaseWorker`): A BaseWorker object representing the
+                pointer to a remote worker, which must have a unique id.
+        """
+        if worker.id in self._participants:
+            logger.warning(
+                "Worker "
+                + str(worker.id)
+                + " already exists. Replacing old worker which could cause \
+                    unexpected behavior"
+            )
+        self._participants[worker.id] = worker
+
+        return self
+
+    def add_workers(self, workers: List["BaseWorker"]):
+        """Adds several workers in a single call.
+
+        Args:
+            workers: A list of BaseWorker representing the workers to add.
+        """
+        for worker in workers:
+            self.add_worker(worker)
+
+        return self

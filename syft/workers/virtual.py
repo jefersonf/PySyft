@@ -1,6 +1,7 @@
 from time import sleep
 
 from syft.workers.base import BaseWorker
+from syft.workers.base import BaseWorkerGroup
 from syft.federated.federated_client import FederatedClient
 
 
@@ -12,6 +13,16 @@ class VirtualWorker(BaseWorker, FederatedClient):
                 print(f"pending time of {self.message_pending_time} seconds to send message...")
             sleep(self.message_pending_time)
 
+        return location._recv_msg(message)
+
+    def _recv_msg(self, message: bin) -> bin:
+        """receieve message"""
+        return self.recv_msg(message)
+
+
+class VirtualWorkerGroup(BaseWorkerGroup, FederatedClient):
+    def _send_msg(self, message: bin, location: BaseWorkerGroup) -> bin:
+        """send message to worker location"""
         return location._recv_msg(message)
 
     def _recv_msg(self, message: bin) -> bin:
