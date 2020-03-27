@@ -70,6 +70,7 @@ from syft.serde import compression
 from syft.serde.msgpack.native_serde import MAP_NATIVE_SIMPLIFIERS_AND_DETAILERS
 from syft.workers.abstract import AbstractWorker
 from syft.workers.base import BaseWorker
+from syft.workers.base import BaseWorkerGroup
 
 from syft.exceptions import GetNotPermittedError
 from syft.exceptions import ResponseSignatureError
@@ -118,6 +119,7 @@ OBJ_SIMPLIFIER_AND_DETAILERS = [
     ObjectWrapper,
     TrainConfig,
     BaseWorker,
+    BaseWorkerGroup,
     AutogradTensor,
     Message,
     OperationMessage,
