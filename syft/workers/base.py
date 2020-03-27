@@ -1294,3 +1294,46 @@ class BaseWorkerGroup(AbstractWorkerGroup, ObjectStorage):
             self.add_worker(worker)
 
         return self
+
+    def send(
+        self,
+        obj: Union[FrameworkTensorType, AbstractTensor],
+        workers: "BaseWorker",
+        ptr_id: Union[str, int] = None,
+        garbage_collect_data=None,
+        **kwargs,
+    ) -> ObjectPointer:
+        pass
+
+    def __str__(self):
+        """Returns the string representation of BaseWorkerGroup.
+
+        A to-string method for all classes that extend BaseWorkerGroup.
+
+        Returns:
+            The Type and ID of the worker group
+
+        Example:
+            A VirtualWorkerGroup instance with id 'friends' would return a string value of.
+            >>> import syft as sy
+            >>> friends = sy.VirtualWorkerGroup(id="friends")
+            >>> friends
+            <syft.workers.virtual.VirtualWorkerGroup id:friends>
+
+        Note:
+            __repr__ calls this method by default.
+        """
+
+        out = "<"
+        out += str(type(self)).split("'")[1].split(".")[-1]
+        out += " id:" + str(self.id)
+        out += " #objects:" + str(len(self._objects))
+        out += ">"
+        return out
+
+    def __repr__(self):
+        """Returns the official string representation of BaseWorkerGroup."""
+        return self.__str__()
+
+    def __getitem__(self, idx):
+        return self._objects.get(idx, None)
