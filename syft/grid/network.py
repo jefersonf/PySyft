@@ -181,6 +181,7 @@ class Network(threading.Thread):
             f"hosted_models: {list(self._worker.models.keys())}, "
             f"connected_nodes: {list(self._connection_handler.nodes)}"
         )
+        return repr_str
 
     @property
     def peers(self):
